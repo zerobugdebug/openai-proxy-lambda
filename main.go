@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/sashabaranov/go-openai"
-
 )
 
 type Request struct {
@@ -147,7 +146,7 @@ func getFullOpenAIResponse(promptEnvVariable string, promptData1 string, promptD
 	//fmt.Println("response.Choices[0].Message.Content=", response.Choices[0].Message.Content)
 	// Parse the response and extract integer answer
 	reply := response.Choices[0].Message.Content
-	fmt.Printf("response.Choices[0].Message.Content: %v\n", response.Choices[0].Message.Content)
+	//fmt.Printf("response.Choices[0].Message.Content: %v\n", response.Choices[0].Message.Content)
 	return reply, nil
 }
 
