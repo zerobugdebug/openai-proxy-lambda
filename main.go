@@ -7,19 +7,20 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/sashabaranov/go-openai"
 )
 
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
 type Request struct {
-	PromptTemplate string `json:"prompt_template"`
-	PromptData1    string `json:"prompt_data1"`
-	PromptData2    string `json:"prompt_data2,omitempty"`
-	PromptData3    string `json:"prompt_data3,omitempty"`
-	ResponseType   string `json:"response_type"`
+	PromptTemplate string        `json:"prompt_template"`
+	Messages       []chatMessage `json:"messages"`
+	ResponseType   string        `json:"response_type"`
 }
 
 type Response struct {
@@ -30,6 +31,8 @@ type Response struct {
 
 func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var reqBody Request
+
+	fmt.Printf("request.Body: %v\n", request.Body)
 
 	err := json.Unmarshal([]byte(request.Body), &reqBody)
 	if err != nil {
@@ -43,7 +46,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	switch reqBody.ResponseType {
 	case "int":
 		{
-			openAIResponse, err := getIntOpenAIResponse(reqBody.PromptTemplate, reqBody.PromptData1, reqBody.PromptData2, reqBody.PromptData3)
+			openAIResponse, err := getIntOpenAIResponse(reqBody.PromptTemplate, reqBody.Messages)
 			if err != nil {
 				return events.APIGatewayProxyResponse{
 					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
@@ -54,7 +57,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		}
 	case "string":
 		{
-			openAIResponse, err := getStringOpenAIResponse(reqBody.PromptTemplate, reqBody.PromptData1, reqBody.PromptData2, reqBody.PromptData3)
+			openAIResponse, err := getStringOpenAIResponse(reqBody.PromptTemplate, reqBody.Messages)
 			if err != nil {
 				return events.APIGatewayProxyResponse{
 					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
@@ -65,7 +68,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		}
 	case "full":
 		{
-			openAIResponse, err := getFullOpenAIResponse(reqBody.PromptTemplate, reqBody.PromptData1, reqBody.PromptData2, reqBody.PromptData3)
+			openAIResponse, err := getFullOpenAIResponse(reqBody.PromptTemplate, reqBody.Messages)
 			if err != nil {
 				return events.APIGatewayProxyResponse{
 					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
@@ -81,7 +84,8 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		}, nil
 	}
 
-	fmt.Printf("respBody: %v\n", respBody)
+	//fmt.Printf("reqBody: %v\n", reqBody)
+	//fmt.Printf("respBody: %v\n", respBody)
 
 	responseJSON, err := json.Marshal(respBody)
 	if err != nil {
@@ -98,7 +102,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	}, nil
 }
 
-func getFullOpenAIResponse(promptEnvVariable string, promptData1 string, promptData2 string, promptData3 string) (string, error) {
+func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return "", fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
@@ -112,23 +116,30 @@ func getFullOpenAIResponse(promptEnvVariable string, promptData1 string, promptD
 		return "", fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
 	}
 
+	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
+
+	// Copy chatMessages to ChatCompletionMessages
+	for _, v := range chatMessages {
+		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
+		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
+	}
+
+	fmt.Printf("chatCompletionMessages: %v\n", chatCompletionMessages)
+
 	// Send the prompt to OpenAI API and get the response
-	//prompt := fmt.Sprintf(promptTemplate, promptData)
-	prompt := promptTemplate
-	if promptData1 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param1***", promptData1)
-	}
-	if promptData2 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param2***", promptData2)
-	}
-	if promptData3 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param3***", promptData3)
-	}
 
 	response, err := client.CreateChatCompletion(
 		context.Background(),
 
 		openai.ChatCompletionRequest{
+			Model:            openai.GPT3Dot5Turbo,
+			MaxTokens:        1000,
+			Messages:         chatCompletionMessages,
+			PresencePenalty:  2,
+			FrequencyPenalty: 2,
+		},
+
+		/* 		openai.ChatCompletionRequest{
 			Model:     openai.GPT3Dot5Turbo,
 			MaxTokens: 1000,
 			Messages: []openai.ChatCompletionMessage{
@@ -137,7 +148,7 @@ func getFullOpenAIResponse(promptEnvVariable string, promptData1 string, promptD
 					Content: prompt,
 				},
 			},
-		},
+		}, */
 	)
 	if err != nil {
 		return "", fmt.Errorf("Error sending OpenAI API request: %s", err)
@@ -150,7 +161,7 @@ func getFullOpenAIResponse(promptEnvVariable string, promptData1 string, promptD
 	return reply, nil
 }
 
-func getIntOpenAIResponse(promptEnvVariable string, promptData1 string, promptData2 string, promptData3 string) (int, error) {
+func getIntOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (int, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return 0, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
@@ -164,30 +175,25 @@ func getIntOpenAIResponse(promptEnvVariable string, promptData1 string, promptDa
 		return 0, fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
 	}
 
+	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
+
+	// Copy chatMessages to ChatCompletionMessages
+	for _, v := range chatMessages {
+		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
+		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
+	}
+
 	// Send the prompt to OpenAI API and get the response
-	prompt := promptTemplate
-	if promptData1 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param1***", promptData1)
-	}
-	if promptData2 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param2***", promptData2)
-	}
-	if promptData3 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param3***", promptData3)
-	}
 
 	response, err := client.CreateChatCompletion(
 		context.Background(),
 
 		openai.ChatCompletionRequest{
-			Model:     openai.GPT3Dot5Turbo,
-			MaxTokens: 1000,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
+			Model:            openai.GPT3Dot5Turbo,
+			MaxTokens:        1000,
+			Messages:         chatCompletionMessages,
+			PresencePenalty:  2,
+			FrequencyPenalty: 2,
 		},
 	)
 	if err != nil {
@@ -209,7 +215,7 @@ func getIntOpenAIResponse(promptEnvVariable string, promptData1 string, promptDa
 	return 0, fmt.Errorf("Can't parse OpenAI API response: %s", reply)
 }
 
-func getStringOpenAIResponse(promptEnvVariable string, promptData1 string, promptData2 string, promptData3 string) (string, error) {
+func getStringOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return "", fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
@@ -223,32 +229,28 @@ func getStringOpenAIResponse(promptEnvVariable string, promptData1 string, promp
 		return "", fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
 	}
 
+	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
+
+	// Copy chatMessages to ChatCompletionMessages
+	for _, v := range chatMessages {
+		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
+		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
+	}
+
 	// Send the prompt to OpenAI API and get the response
-	prompt := promptTemplate
-	if promptData1 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param1***", promptData1)
-	}
-	if promptData2 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param2***", promptData2)
-	}
-	if promptData3 != "" {
-		prompt = strings.ReplaceAll(prompt, "***param3***", promptData3)
-	}
 
 	response, err := client.CreateChatCompletion(
 		context.Background(),
 
 		openai.ChatCompletionRequest{
-			Model:     openai.GPT3Dot5Turbo,
-			MaxTokens: 1000,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
+			Model:            openai.GPT3Dot5Turbo,
+			MaxTokens:        1000,
+			Messages:         chatCompletionMessages,
+			PresencePenalty:  2,
+			FrequencyPenalty: 2,
 		},
 	)
+
 	if err != nil {
 		return "", fmt.Errorf("Error sending OpenAI API request: %s", err)
 	}
