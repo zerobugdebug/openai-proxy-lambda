@@ -13,6 +13,10 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+const (
+	defaultModel = "gpt-3.5-turbo"
+)
+
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -102,6 +106,15 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	}, nil
 }
 
+func isValidModel(models []openai.Model, id string) bool {
+	for _, model := range models {
+		if model.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
@@ -109,6 +122,23 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 	}
 
 	client := openai.NewClient(apiKey)
+
+	model := os.Getenv("OPENAI_MODEL")
+	if model == "" {
+		model = defaultModel
+	} else {
+		availableModels, err := client.ListModels(context.Background())
+		if err != nil {
+			fmt.Printf("Error getting list of available models: %s\n Defaulting to %s", err, defaultModel)
+			model = defaultModel
+		} else {
+			if !isValidModel(availableModels.Models, model) {
+				fmt.Printf("Model %s is not a valid model\n Defaulting to %s", model, defaultModel)
+				model = defaultModel
+			}
+		}
+
+	}
 
 	promptTemplate := os.Getenv(promptEnvVariable)
 
@@ -132,7 +162,7 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 		context.Background(),
 
 		openai.ChatCompletionRequest{
-			Model:            openai.GPT3Dot5Turbo,
+			Model:            "gpt-3.5-turbo",
 			MaxTokens:        1000,
 			Messages:         chatCompletionMessages,
 			PresencePenalty:  2,
