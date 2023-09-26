@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/sashabaranov/go-openai"
-
 )
 
 const (
@@ -116,10 +115,10 @@ func isValidModel(models []openai.Model, id string) bool {
 	return false
 }
 
-func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
+func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (openai.ChatCompletionResponse, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		return "", fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
+		return openai.ChatCompletionResponse{}, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
 	}
 
 	client := openai.NewClient(apiKey)
@@ -150,9 +149,10 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 	promptTemplate := os.Getenv(promptEnvVariable)
 
 	if promptTemplate == "" {
-		return "", fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
+		return openai.ChatCompletionResponse{}, fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
 	}
 
+	//Add prompt from environment variable as default system prompt
 	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
 
 	// Copy chatMessages to ChatCompletionMessages
@@ -169,74 +169,34 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 
 		openai.ChatCompletionRequest{
 			Model:            model,
-			MaxTokens:        1000,
 			Messages:         chatCompletionMessages,
 			PresencePenalty:  2,
 			FrequencyPenalty: 2,
 		},
-
-		/* 		openai.ChatCompletionRequest{
-			Model:     openai.GPT3Dot5Turbo,
-			MaxTokens: 1000,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-		}, */
 	)
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("Error sending OpenAI API request: %s", err)
+	}
+	return response, nil
+
+}
+
+func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
+	response, err := initOpenAIRequest(promptEnvVariable, chatMessages)
 	if err != nil {
 		return "", fmt.Errorf("Error sending OpenAI API request: %s", err)
 	}
-
-	//fmt.Println("response.Choices[0].Message.Content=", response.Choices[0].Message.Content)
-	// Parse the response and extract integer answer
+	// Parse the response and return full answer
 	reply := response.Choices[0].Message.Content
-	//fmt.Printf("response.Choices[0].Message.Content: %v\n", response.Choices[0].Message.Content)
 	return reply, nil
 }
 
 func getIntOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (int, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return 0, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
-	}
-
-	client := openai.NewClient(apiKey)
-
-	promptTemplate := os.Getenv(promptEnvVariable)
-
-	if promptTemplate == "" {
-		return 0, fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
-	}
-
-	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
-
-	// Copy chatMessages to ChatCompletionMessages
-	for _, v := range chatMessages {
-		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
-		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
-	}
-
-	// Send the prompt to OpenAI API and get the response
-
-	response, err := client.CreateChatCompletion(
-		context.Background(),
-
-		openai.ChatCompletionRequest{
-			Model:            openai.GPT3Dot5Turbo,
-			MaxTokens:        1000,
-			Messages:         chatCompletionMessages,
-			PresencePenalty:  2,
-			FrequencyPenalty: 2,
-		},
-	)
+	response, err := initOpenAIRequest(promptEnvVariable, chatMessages)
 	if err != nil {
 		return 0, fmt.Errorf("Error sending OpenAI API request: %s", err)
 	}
 
-	//fmt.Println("response.Choices[0].Message.Content=", response.Choices[0].Message.Content)
 	// Parse the response and extract integer answer
 	reply := response.Choices[0].Message.Content
 	fmt.Printf("response.Choices[0].Message.Content: %v\n", response.Choices[0].Message.Content)
@@ -252,41 +212,7 @@ func getIntOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) 
 }
 
 func getStringOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage) (string, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return "", fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
-	}
-
-	client := openai.NewClient(apiKey)
-
-	promptTemplate := os.Getenv(promptEnvVariable)
-
-	if promptTemplate == "" {
-		return "", fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
-	}
-
-	chatCompletionMessages := []openai.ChatCompletionMessage{{Role: "system", Content: promptTemplate}}
-
-	// Copy chatMessages to ChatCompletionMessages
-	for _, v := range chatMessages {
-		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
-		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
-	}
-
-	// Send the prompt to OpenAI API and get the response
-
-	response, err := client.CreateChatCompletion(
-		context.Background(),
-
-		openai.ChatCompletionRequest{
-			Model:            openai.GPT3Dot5Turbo,
-			MaxTokens:        1000,
-			Messages:         chatCompletionMessages,
-			PresencePenalty:  2,
-			FrequencyPenalty: 2,
-		},
-	)
-
+	response, err := initOpenAIRequest(promptEnvVariable, chatMessages)
 	if err != nil {
 		return "", fmt.Errorf("Error sending OpenAI API request: %s", err)
 	}
