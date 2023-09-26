@@ -32,7 +32,7 @@ The provided Go code contains an AWS Lambda function which:
 4. Set the following environment variables in AWS Lambda:
     - `OPENAI_API_KEY`: Your OpenAI API key.
     - `OPENAI_MODEL`: (optional) OpenAI model you wish to use. Defaults to `gpt-3.5-turbo`.
-    - `YOUR_ENV_VARIABLE_FOR_PROMPT_TEMPLATE: System prompt to use for the request to OpenAI API
+    - `YOUR_ENV_VARIABLE_FOR_PROMPT_TEMPLATE`: System prompt to use for the request to OpenAI API
 5. Use the Lambda function
 
     To access the OpenAI API through the proxy, send a POST request to the Lambda API Gateway endpoint with a body like:
