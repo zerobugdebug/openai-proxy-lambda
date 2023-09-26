@@ -25,8 +25,8 @@ The provided Go code contains an AWS Lambda function which:
 1. Clone the repository.
 2. Build the Go application for Linux and ZIP it.
    ```
-   GOOS=linux GOARCH=amd64 go build -o main main.go
-   zip deployment.zip main
+   GOOS=linux GOARCH=amd64 go build -ldflags="-s -w"
+   zip openai-proxy-lambda.zip openai-proxy-lambda
    ```
 3. Use AWS CLI or AWS Lambda console to deploy the `deployment.zip` to an AWS Lambda function.
 4. Set the following environment variables in AWS Lambda:
