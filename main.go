@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/sashabaranov/go-openai"
+
 )
 
 const (
@@ -123,21 +124,27 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 
 	client := openai.NewClient(apiKey)
 
+	// Get the value of the "OPENAI_MODEL" environment variable
 	model := os.Getenv("OPENAI_MODEL")
+	// Check if the model value is empty
 	if model == "" {
+		// If the model value is empty, set it to the default model
 		model = defaultModel
 	} else {
+		// Otherwise, retrieve a list of available models
 		availableModels, err := client.ListModels(context.Background())
 		if err != nil {
+			// Print an error message and set the model to the default model
 			fmt.Printf("Error getting list of available models: %s\n Defaulting to %s", err, defaultModel)
 			model = defaultModel
 		} else {
+			// Check if the provided model is valid
 			if !isValidModel(availableModels.Models, model) {
+				// If it's not a valid model, print a message and set the model to the default model
 				fmt.Printf("Model %s is not a valid model\n Defaulting to %s", model, defaultModel)
 				model = defaultModel
 			}
 		}
-
 	}
 
 	promptTemplate := os.Getenv(promptEnvVariable)
@@ -157,12 +164,11 @@ func getFullOpenAIResponse(promptEnvVariable string, chatMessages []chatMessage)
 	fmt.Printf("chatCompletionMessages: %v\n", chatCompletionMessages)
 
 	// Send the prompt to OpenAI API and get the response
-
 	response, err := client.CreateChatCompletion(
 		context.Background(),
 
 		openai.ChatCompletionRequest{
-			Model:            "gpt-3.5-turbo",
+			Model:            model,
 			MaxTokens:        1000,
 			Messages:         chatCompletionMessages,
 			PresencePenalty:  2,
