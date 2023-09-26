@@ -116,6 +116,8 @@ func isValidModel(models []openai.Model, id string) bool {
 }
 
 func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (openai.ChatCompletionResponse, error) {
+
+	// Get the value of the "OPENAI_API_KEY" environment variable
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
@@ -146,8 +148,8 @@ func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (op
 		}
 	}
 
+	// Get the value of the promptEnvVariable environment variable to use as a system prompt in the API request
 	promptTemplate := os.Getenv(promptEnvVariable)
-
 	if promptTemplate == "" {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("Prompt not found in the environment variable %s", promptEnvVariable)
 	}
@@ -158,7 +160,6 @@ func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (op
 	// Copy chatMessages to ChatCompletionMessages
 	for _, v := range chatMessages {
 		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{Role: v.Role, Content: v.Content})
-		// Fields c and d of arr1[i] will remain their zero values unless set otherwise
 	}
 
 	fmt.Printf("chatCompletionMessages: %v\n", chatCompletionMessages)
