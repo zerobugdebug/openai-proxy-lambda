@@ -415,8 +415,13 @@ func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 
 	for {
 		response, err := stream.Recv()
+		//isDone := false
 		if errors.Is(err, io.EOF) {
-			fmt.Println("Stream finished")
+			postInput.Data = []byte("<END>")
+			_, err := openAIRequest.apiGatewayClient.PostToConnection(postInput)
+			if err != nil {
+				return fmt.Errorf("Error reqeusting OpenAI API stream: %v", err)
+			}
 			return nil
 		}
 
