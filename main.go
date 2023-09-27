@@ -151,7 +151,7 @@ func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest
 			StatusCode: 500,
 		}, nil
 	}
-	fmt.Printf("responseJSON: %v\n", responseJSON)
+	//fmt.Printf("responseJSON: %v\n", responseJSON)
 
 	return events.APIGatewayProxyResponse{
 		Body:       string(responseJSON),
