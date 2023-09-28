@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/apigatewaymanagementapi"
 	"github.com/sashabaranov/go-openai"
-
 )
 
 const (
@@ -67,6 +66,10 @@ func init() {
 	}
 }
 
+func main() {
+	lambda.Start(Handler)
+}
+
 func loadConfig() (Config, error) {
 	cfg := Config{
 		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
@@ -91,113 +94,81 @@ func loadConfig() (Config, error) {
 
 func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
 
-	fmt.Printf("request.Resource: %v\n", request.Resource)
-	fmt.Printf("request.Path: %v\n", request.Path)
-	fmt.Printf("request.HTTPMethod: %v\n", request.HTTPMethod)
-	fmt.Printf("request.Body: %v\n", request.Body)
-	fmt.Printf("request.RequestContext: %v\n", request.RequestContext)
-	fmt.Printf("request.RequestContext.RouteKey: %v\n", request.RequestContext.RouteKey)
+	/* 	fmt.Printf("request.Resource: %v\n", request.Resource)
+	   	fmt.Printf("request.Path: %v\n", request.Path)
+	   	fmt.Printf("request.HTTPMethod: %v\n", request.HTTPMethod)
+	   	fmt.Printf("request.Body: %v\n", request.Body)
+	   	fmt.Printf("request.RequestContext: %v\n", request.RequestContext)
+	   	fmt.Printf("request.RequestContext.RouteKey: %v\n", request.RequestContext.RouteKey) */
 
-	switch request.RequestContext.RouteKey {
-	case "$connect":
-		//Nothing special to do
-		return events.APIGatewayProxyResponse{StatusCode: 200}, nil
-	case "$disconnect":
-		//Nothing special to do
-		return events.APIGatewayProxyResponse{StatusCode: 200}, nil
+	routeKey := request.RequestContext.RouteKey
+	switch routeKey {
+	case "$connect", "$disconnect":
+		return handleConnection(routeKey)
+	default:
+		return handleRequest(request)
 	}
+}
 
-	var reqBody Request
+func handleConnection(routeKey string) (events.APIGatewayProxyResponse, error) {
+	// Handling connection or disconnection
+	return events.APIGatewayProxyResponse{StatusCode: 200}, nil
+}
 
-	err := json.Unmarshal([]byte(request.Body), &reqBody)
+func handleRequest(request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
+	reqBody, err := parseRequestBody(request.Body)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			Body:       fmt.Sprintf("Error parsing request JSON: %s", err),
-			StatusCode: 400,
-		}, nil
+		return errorResponse(fmt.Sprintf("Error parsing request JSON: %s", err), 400)
 	}
 
-	var respBody Response
+	apiGatewayClient := getAPIGatewayClient()
+	openAIReq := createOpenAIRequest(reqBody, apiGatewayClient, request.RequestContext.ConnectionID)
 
-	// Get the endpoint URL from the config
-	apiEndpoint := config.APIGatewayEndpoint
-	if apiEndpoint == "" {
-		return events.APIGatewayProxyResponse{
-			Body:       fmt.Sprintf("Internal error. Environment configuration is missing."),
-			StatusCode: 500,
-		}, nil
-	}
-
-	openAIRequest := openAIRequest{
-		request:          reqBody,
-		apiGatewayClient: apigatewaymanagementapi.New(session.Must(session.NewSession()), aws.NewConfig().WithEndpoint(apiEndpoint)),
-		ConnectionId:     request.RequestContext.ConnectionID,
-	}
-
+	var handlerFunc func(openAIRequest) error
 	switch reqBody.ResponseType {
 	case "int":
-		{
-			err := getIntOpenAIResponse(openAIRequest)
-			if err != nil {
-				return events.APIGatewayProxyResponse{
-					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
-					StatusCode: 500,
-				}, nil
-			}
-		}
+		handlerFunc = getIntOpenAIResponse
 	case "string":
-		{
-			err := getStringOpenAIResponse(openAIRequest)
-			if err != nil {
-				return events.APIGatewayProxyResponse{
-					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
-					StatusCode: 500,
-				}, nil
-			}
-		}
+		handlerFunc = getStringOpenAIResponse
 	case "full":
-		{
-			err := getFullOpenAIResponse(openAIRequest)
-			if err != nil {
-				return events.APIGatewayProxyResponse{
-					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
-					StatusCode: 500,
-				}, nil
-			}
-		}
+		handlerFunc = getFullOpenAIResponse
 	case "stream":
-		{
-			err := getStreamOpenAIResponse(openAIRequest)
-			if err != nil {
-				return events.APIGatewayProxyResponse{
-					Body:       fmt.Sprintf("Error calling OpenAI API: %s", err),
-					StatusCode: 500,
-				}, nil
-			}
-		}
+		handlerFunc = getStreamOpenAIResponse
 	default:
-		return events.APIGatewayProxyResponse{
-			Body:       fmt.Sprintf("Incorrect response type: %s", err),
-			StatusCode: 500,
-		}, nil
+		return errorResponse(fmt.Sprintf("Incorrect response type: %s", reqBody.ResponseType), 500)
 	}
 
-	//fmt.Printf("reqBody: %v\n", reqBody)
-	//fmt.Printf("respBody: %v\n", respBody)
-
-	responseJSON, err := json.Marshal(respBody)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			Body:       fmt.Sprintf("Error converting OpenAI response to JSON: %s", err),
-			StatusCode: 500,
-		}, nil
+	if err := handlerFunc(openAIReq); err != nil {
+		return errorResponse(fmt.Sprintf("Error handling request: %s", err), 500)
 	}
-	//fmt.Printf("responseJSON: %v\n", responseJSON)
 
+	return events.APIGatewayProxyResponse{StatusCode: 200}, nil
+}
+
+func parseRequestBody(body string) (Request, error) {
+	var reqBody Request
+	err := json.Unmarshal([]byte(body), &reqBody)
+	return reqBody, err
+}
+
+func errorResponse(message string, statusCode int) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
-		Body:       string(responseJSON),
-		StatusCode: 200,
+		Body:       message,
+		StatusCode: statusCode,
 	}, nil
+}
+
+func getAPIGatewayClient() *apigatewaymanagementapi.ApiGatewayManagementApi {
+	apiEndpoint := config.APIGatewayEndpoint
+	return apigatewaymanagementapi.New(session.Must(session.NewSession()), aws.NewConfig().WithEndpoint(apiEndpoint))
+}
+
+func createOpenAIRequest(reqBody Request, apiGatewayClient *apigatewaymanagementapi.ApiGatewayManagementApi, connectionID string) openAIRequest {
+	return openAIRequest{
+		request:          reqBody,
+		apiGatewayClient: apiGatewayClient,
+		ConnectionId:     connectionID,
+	}
 }
 
 /*
@@ -458,8 +429,4 @@ func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 		}
 
 	}
-}
-
-func main() {
-	lambda.Start(Handler)
 }
