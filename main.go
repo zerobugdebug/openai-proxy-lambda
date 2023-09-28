@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/apigatewaymanagementapi"
 	"github.com/sashabaranov/go-openai"
+
 )
 
 const (
@@ -207,28 +208,6 @@ func createOpenAIRequest(reqBody Request, apiGatewayClient *apigatewaymanagement
 		ConnectionId:     connectionID,
 	}
 }
-
-/*
-func newWebsocketHandler(apiGatewayEndpoint, apiGatewayStage string) *WebsocketHandler {
-	sess := session.Must(session.NewSession())
-	apiGatewayClient := apigatewaymanagementapi.New(sess, aws.NewConfig().WithEndpoint(apiGatewayEndpoint))
-	return &WebsocketHandler{apiGatewayClient: apiGatewayClient, apiGatewayStage: apiGatewayStage}
-}
-
-// Send a message to a specific client.
-func (ws *WebsocketHandler) sendMessage(connectionID, message string) error {
-	postInput := &apigatewaymanagementapi.PostToConnectionInput{
-		ConnectionId: aws.String(connectionID),
-		Data:         []byte(message),
-	}
-
-	_, err := ws.apiGatewayClient.PostToConnection(postInput)
-	if err != nil {
-		return err
-	}
-
-	return nil
-} */
 
 // isValidModel checks if the specified model ID is valid
 func isValidModel(models []openai.Model, id string) bool {
