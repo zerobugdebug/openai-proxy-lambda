@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/apigatewaymanagementapi"
 	"github.com/sashabaranov/go-openai"
+
 )
 
 const (
@@ -49,6 +50,45 @@ type WebsocketHandler struct {
 	apiGatewayStage  string
 }
 
+type Config struct {
+	OpenAIKey          string
+	OpenAIModel        string
+	APIGatewayEndpoint string
+}
+
+var config Config
+
+func init() {
+	var err error
+	config, err = loadConfig()
+	if err != nil {
+		fmt.Printf("Failed to load configuration: %v", err)
+		os.Exit(1)
+	}
+}
+
+func loadConfig() (Config, error) {
+	cfg := Config{
+		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:        os.Getenv("OPENAI_MODEL"),
+		APIGatewayEndpoint: os.Getenv("API_GW_ENDPOINT"),
+	}
+
+	if cfg.OpenAIKey == "" {
+		return cfg, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
+	}
+
+	if cfg.OpenAIModel == "" {
+		cfg.OpenAIModel = defaultModel
+	}
+
+	if cfg.APIGatewayEndpoint == "" {
+		return cfg, fmt.Errorf("API Gateway Endpoint not found in environment variable API_GW_ENDPOINT")
+	}
+
+	return cfg, nil
+}
+
 func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
 
 	fmt.Printf("request.Resource: %v\n", request.Resource)
@@ -79,8 +119,8 @@ func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest
 
 	var respBody Response
 
-	// Get the endpoint URL for the gateway from "API_GW_ENDPOINT" environment variable
-	apiEndpoint := os.Getenv("API_GW_ENDPOINT")
+	// Get the endpoint URL from the config
+	apiEndpoint := config.APIGatewayEndpoint
 	if apiEndpoint == "" {
 		return events.APIGatewayProxyResponse{
 			Body:       fmt.Sprintf("Internal error. Environment configuration is missing."),
@@ -191,28 +231,21 @@ func isValidModel(models []openai.Model, id string) bool {
 	return false
 }
 
-func getOpenAIClient() (*openai.Client, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
-	}
-	return openai.NewClient(apiKey), nil
+func getOpenAIClient() *openai.Client {
+	return openai.NewClient(config.OpenAIKey)
 }
 
 func getModel() (string, error) {
 
 	// Get the value of the "OPENAI_MODEL" environment variable
-	model := os.Getenv("OPENAI_MODEL")
+	model := config.OpenAIModel
 	// Check if the model value is empty
 	if model == "" {
 		// If the model value is empty, set it to the default model
 		return defaultModel, nil
 	}
 	// Otherwise, retrieve a list of available models
-	client, err := getOpenAIClient()
-	if err != nil {
-		return "", fmt.Errorf("Can't initialize the connection to OpenAI API: %v", err)
-	}
+	client := getOpenAIClient()
 	availableModels, err := client.ListModels(context.Background())
 	if err != nil {
 		// Print an error message and set the model to the default model
@@ -230,41 +263,7 @@ func getModel() (string, error) {
 
 func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (openai.ChatCompletionResponse, error) {
 
-	/* 	// Get the value of the "OPENAI_API_KEY" environment variable
-	   	apiKey := os.Getenv("OPENAI_API_KEY")
-	   	if apiKey == "" {
-	   		return openai.ChatCompletionResponse{}, fmt.Errorf("OpenAI API key not found in environment variable OPENAI_API_KEY")
-	   	}
-
-	   	client := openai.NewClient(apiKey)
-
-	   	// Get the value of the "OPENAI_MODEL" environment variable
-	   	model := os.Getenv("OPENAI_MODEL")
-	   	// Check if the model value is empty
-	   	if model == "" {
-	   		// If the model value is empty, set it to the default model
-	   		model = defaultModel
-	   	} else {
-	   		// Otherwise, retrieve a list of available models
-	   		availableModels, err := client.ListModels(context.Background())
-	   		if err != nil {
-	   			// Print an error message and set the model to the default model
-	   			fmt.Printf("Error getting list of available models: %s\n Defaulting to %s", err, defaultModel)
-	   			model = defaultModel
-	   		} else {
-	   			// Check if the provided model is valid
-	   			if !isValidModel(availableModels.Models, model) {
-	   				// If it's not a valid model, print a message and set the model to the default model
-	   				fmt.Printf("Model %s is not a valid model\n Defaulting to %s", model, defaultModel)
-	   				model = defaultModel
-	   			}
-	   		}
-	   	} */
-
-	client, err := getOpenAIClient()
-	if err != nil {
-		return openai.ChatCompletionResponse{}, fmt.Errorf("Can't initialize the connection to OpenAI API: %v", err)
-	}
+	client := getOpenAIClient()
 	model, err := getModel()
 	if err != nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("Can't get the OpenAI model: %v", err)
@@ -305,10 +304,7 @@ func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (op
 
 func initOpenAIStream(promptEnvVariable string, chatMessages []chatMessage) (*openai.ChatCompletionStream, error) {
 
-	client, err := getOpenAIClient()
-	if err != nil {
-		return nil, fmt.Errorf("Can't initialize the connection to OpenAI API: %v", err)
-	}
+	client := getOpenAIClient()
 	model, err := getModel()
 	if err != nil {
 		return nil, fmt.Errorf("Can't get the OpenAI model: %v", err)
