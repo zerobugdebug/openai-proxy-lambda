@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/apigatewaymanagementapi"
 	"github.com/sashabaranov/go-openai"
-
 )
 
 const (
@@ -43,12 +42,6 @@ type Request struct {
 	ResponseType   string        `json:"response_type"`
 }
 
-type Response struct {
-	Int    int    `json:"int,omitempty"`
-	String string `json:"string,omitempty"`
-	Full   string `json:"full,omitempty"`
-}
-
 type openAIRequest struct {
 	request          Request
 	apiGatewayClient *apigatewaymanagementapi.ApiGatewayManagementApi
@@ -66,7 +59,7 @@ type Config struct {
 	APIGatewayEndpoint string
 }
 
-var config Config
+var config Config // Global configuration variable
 
 // getConfusables returns a read-only map of confusable characters to their ASCII replacements to imitate const map.
 func getConfusables() map[rune]rune {
@@ -93,6 +86,7 @@ func replaceConfusables(s string) string {
 	return builder.String()
 }
 
+// init is called to load configuration from environment variables
 func init() {
 	var err error
 	config, err = loadConfig()
@@ -106,6 +100,7 @@ func main() {
 	lambda.Start(Handler)
 }
 
+// loadConfig loads configuration from environment variables
 func loadConfig() (Config, error) {
 	cfg := Config{
 		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
@@ -128,6 +123,7 @@ func loadConfig() (Config, error) {
 	return cfg, nil
 }
 
+// Handler is the main handler for AWS Lambda functions
 func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
 
 	/* 	fmt.Printf("request.Resource: %v\n", request.Resource)
@@ -146,11 +142,12 @@ func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest
 	}
 }
 
+// handleConnection handles connection and disconnection events
 func handleConnection(routeKey string) (events.APIGatewayProxyResponse, error) {
-	// Handling connection or disconnection
 	return events.APIGatewayProxyResponse{StatusCode: statusCodeOK}, nil
 }
 
+// handleRequest handles requests other than connection/disconnection
 func handleRequest(request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
 	reqBody, err := parseRequestBody(request.Body)
 	if err != nil {
@@ -181,12 +178,14 @@ func handleRequest(request events.APIGatewayWebsocketProxyRequest) (events.APIGa
 	return events.APIGatewayProxyResponse{StatusCode: statusCodeOK}, nil
 }
 
+// parseRequestBody parses the request body from JSON to Request struct
 func parseRequestBody(body string) (Request, error) {
 	var reqBody Request
 	err := json.Unmarshal([]byte(body), &reqBody)
 	return reqBody, err
 }
 
+// errorResponse creates an error response with a specified message and status code
 func errorResponse(message string, statusCode int) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		Body:       message,
@@ -194,11 +193,13 @@ func errorResponse(message string, statusCode int) (events.APIGatewayProxyRespon
 	}, nil
 }
 
+// getAPIGatewayClient initializes and returns an API Gateway client
 func getAPIGatewayClient() *apigatewaymanagementapi.ApiGatewayManagementApi {
 	apiEndpoint := config.APIGatewayEndpoint
 	return apigatewaymanagementapi.New(session.Must(session.NewSession()), aws.NewConfig().WithEndpoint(apiEndpoint))
 }
 
+// createOpenAIRequest creates an OpenAIRequest object from the given input
 func createOpenAIRequest(reqBody Request, apiGatewayClient *apigatewaymanagementapi.ApiGatewayManagementApi, connectionID string) openAIRequest {
 	return openAIRequest{
 		request:          reqBody,
@@ -229,6 +230,7 @@ func (ws *WebsocketHandler) sendMessage(connectionID, message string) error {
 	return nil
 } */
 
+// isValidModel checks if the specified model ID is valid
 func isValidModel(models []openai.Model, id string) bool {
 	for _, model := range models {
 		if model.ID == id {
@@ -238,10 +240,12 @@ func isValidModel(models []openai.Model, id string) bool {
 	return false
 }
 
+// getOpenAIClient initializes and returns an OpenAI client
 func getOpenAIClient() *openai.Client {
 	return openai.NewClient(config.OpenAIKey)
 }
 
+// getModel gets the OpenAI model ID either from environment variables or defaults
 func getModel() (string, error) {
 
 	// Get the value of the "OPENAI_MODEL" environment variable
@@ -268,6 +272,7 @@ func getModel() (string, error) {
 	return model, nil
 }
 
+// initOpenAIRequest initializes an OpenAI request and sends it to OpenAI
 func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (openai.ChatCompletionResponse, error) {
 
 	client := getOpenAIClient()
@@ -309,6 +314,7 @@ func initOpenAIRequest(promptEnvVariable string, chatMessages []chatMessage) (op
 
 }
 
+// initOpenAIStream initializes an OpenAI request for stream response and sends it to OpenAI
 func initOpenAIStream(promptEnvVariable string, chatMessages []chatMessage) (*openai.ChatCompletionStream, error) {
 
 	client := getOpenAIClient()
@@ -354,6 +360,7 @@ func initOpenAIStream(promptEnvVariable string, chatMessages []chatMessage) (*op
 
 }
 
+// getFullOpenAIResponse gets a full response from OpenAI and sends it to the client
 func getFullOpenAIResponse(openAIRequest openAIRequest) error {
 	response, err := initOpenAIRequest(openAIRequest.request.PromptTemplate, openAIRequest.request.Messages)
 	reply := response.Choices[0].Message.Content
@@ -373,6 +380,7 @@ func getFullOpenAIResponse(openAIRequest openAIRequest) error {
 	return fmt.Errorf("Can't get OpenAI API response: %s", reply)
 }
 
+// getIntOpenAIResponse gets an integer response from OpenAI, extracts the integer, and sends it to the client
 func getIntOpenAIResponse(openAIRequest openAIRequest) error {
 	response, err := initOpenAIRequest(openAIRequest.request.PromptTemplate, openAIRequest.request.Messages)
 	if err != nil {
@@ -400,6 +408,7 @@ func getIntOpenAIResponse(openAIRequest openAIRequest) error {
 	return fmt.Errorf("Can't parse OpenAI API response: %s", reply)
 }
 
+// getStringOpenAIResponse gets a string response from OpenAI, extracts the string, and sends it to the client
 func getStringOpenAIResponse(openAIRequest openAIRequest) error {
 	response, err := initOpenAIRequest(openAIRequest.request.PromptTemplate, openAIRequest.request.Messages)
 	if err != nil {
@@ -427,6 +436,7 @@ func getStringOpenAIResponse(openAIRequest openAIRequest) error {
 	return fmt.Errorf("Can't parse OpenAI API response: %s", reply)
 }
 
+// getStreamOpenAIResponse streams responses from OpenAI to the client
 func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 	stream, err := initOpenAIStream(openAIRequest.request.PromptTemplate, openAIRequest.request.Messages)
 	if err != nil {
