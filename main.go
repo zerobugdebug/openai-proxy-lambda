@@ -16,10 +16,21 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/apigatewaymanagementapi"
 	"github.com/sashabaranov/go-openai"
+
 )
 
 const (
-	defaultModel = "gpt-3.5-turbo"
+	defaultModel          = "gpt-3.5-turbo"
+	statusCodeOK          = 200
+	statusCodeBadRequest  = 400
+	statusCodeServerError = 500
+	connectRouteKey       = "$connect"
+	disconnectRouteKey    = "$disconnect"
+	responseTypeInt       = "int"
+	responseTypeString    = "string"
+	responseTypeFull      = "full"
+	responseTypeStream    = "stream"
+	endStreamMessage      = "<END>"
 )
 
 type chatMessage struct {
@@ -56,6 +67,31 @@ type Config struct {
 }
 
 var config Config
+
+// getConfusables returns a read-only map of confusable characters to their ASCII replacements to imitate const map.
+func getConfusables() map[rune]rune {
+	return map[rune]rune{
+		'“': '"',
+		'”': '"',
+		'‘': '\'',
+		'’': '\'',
+		'΄': '\'',
+	}
+}
+
+// Replace confusable UTF-8 characters in s with their ASCII replacements.
+func replaceConfusables(s string) string {
+	confusables := getConfusables()
+	var builder strings.Builder
+	for _, ch := range s {
+		if replacement, ok := confusables[ch]; ok {
+			builder.WriteRune(replacement)
+		} else {
+			builder.WriteRune(ch)
+		}
+	}
+	return builder.String()
+}
 
 func init() {
 	var err error
@@ -103,7 +139,7 @@ func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest
 
 	routeKey := request.RequestContext.RouteKey
 	switch routeKey {
-	case "$connect", "$disconnect":
+	case connectRouteKey, disconnectRouteKey:
 		return handleConnection(routeKey)
 	default:
 		return handleRequest(request)
@@ -112,13 +148,13 @@ func Handler(ctx context.Context, request events.APIGatewayWebsocketProxyRequest
 
 func handleConnection(routeKey string) (events.APIGatewayProxyResponse, error) {
 	// Handling connection or disconnection
-	return events.APIGatewayProxyResponse{StatusCode: 200}, nil
+	return events.APIGatewayProxyResponse{StatusCode: statusCodeOK}, nil
 }
 
 func handleRequest(request events.APIGatewayWebsocketProxyRequest) (events.APIGatewayProxyResponse, error) {
 	reqBody, err := parseRequestBody(request.Body)
 	if err != nil {
-		return errorResponse(fmt.Sprintf("Error parsing request JSON: %s", err), 400)
+		return errorResponse(fmt.Sprintf("Error parsing request JSON: %s", err), statusCodeBadRequest)
 	}
 
 	apiGatewayClient := getAPIGatewayClient()
@@ -135,14 +171,14 @@ func handleRequest(request events.APIGatewayWebsocketProxyRequest) (events.APIGa
 	case "stream":
 		handlerFunc = getStreamOpenAIResponse
 	default:
-		return errorResponse(fmt.Sprintf("Incorrect response type: %s", reqBody.ResponseType), 500)
+		return errorResponse(fmt.Sprintf("Incorrect response type: %s", reqBody.ResponseType), statusCodeServerError)
 	}
 
 	if err := handlerFunc(openAIReq); err != nil {
-		return errorResponse(fmt.Sprintf("Error handling request: %s", err), 500)
+		return errorResponse(fmt.Sprintf("Error handling request: %s", err), statusCodeServerError)
 	}
 
-	return events.APIGatewayProxyResponse{StatusCode: 200}, nil
+	return events.APIGatewayProxyResponse{StatusCode: statusCodeOK}, nil
 }
 
 func parseRequestBody(body string) (Request, error) {
@@ -394,7 +430,7 @@ func getStringOpenAIResponse(openAIRequest openAIRequest) error {
 func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 	stream, err := initOpenAIStream(openAIRequest.request.PromptTemplate, openAIRequest.request.Messages)
 	if err != nil {
-		return fmt.Errorf("Error reqeusting OpenAI API stream: %v", err)
+		return fmt.Errorf("Error requesting OpenAI API stream: %v", err)
 	}
 
 	defer stream.Close()
@@ -408,10 +444,10 @@ func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 		response, err := stream.Recv()
 		//isDone := false
 		if errors.Is(err, io.EOF) {
-			postInput.Data = []byte("<END>")
+			postInput.Data = []byte(endStreamMessage)
 			_, err := openAIRequest.apiGatewayClient.PostToConnection(postInput)
 			if err != nil {
-				return fmt.Errorf("Error reqeusting OpenAI API stream: %v", err)
+				return fmt.Errorf("Error requesting OpenAI API stream: %v", err)
 			}
 			return nil
 		}
@@ -419,13 +455,11 @@ func getStreamOpenAIResponse(openAIRequest openAIRequest) error {
 		if err != nil {
 			return fmt.Errorf("Stream error: %v", err)
 		}
-		delta := strings.ReplaceAll(response.Choices[0].Delta.Content, `“`, `"`)
-		delta = strings.ReplaceAll(delta, `”`, `"`)
 
-		postInput.Data = []byte(delta)
+		postInput.Data = []byte(replaceConfusables(response.Choices[0].Delta.Content))
 		_, err = openAIRequest.apiGatewayClient.PostToConnection(postInput)
 		if err != nil {
-			return fmt.Errorf("Error reqeusting OpenAI API stream: %v", err)
+			return fmt.Errorf("Error requesting OpenAI API stream: %v", err)
 		}
 
 	}
